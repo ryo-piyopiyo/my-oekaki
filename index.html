@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>ぴかぴか☆おえかき DX v4</title>
+    <title>ぴかぴか☆おえかき DX v5</title>
     <style>
         :root {
             --bg-color: #fff0f6;
@@ -62,8 +62,8 @@
         .btn:active { transform: translateY(2px); box-shadow: none; }
         .btn.active { background: var(--accent-color); color: white; border-color: white; }
 
-        .btn-thin { font-size: 12px; }
-        .btn-thick { font-size: 26px; }
+        .btn-thin { font-size: 10px; } /* 小さな丸アイコンのサイズ */
+        .btn-thick { font-size: 24px; } /* 大きな丸アイコンのサイズ */
 
         .undo-btn { border-color: #a29bfe; color: #6c5ce7; box-shadow: 0 3px 0 #a29bfe; }
         .save-btn { border-color: #55efc4; color: #00b894; box-shadow: 0 3px 0 #55efc4; width: 60px; }
@@ -235,7 +235,7 @@
         if(withHistory) { saveHistory(); speak("ぴかぴかにしたよ"); }
     }
 
-    // --- 描画ロジックの修正 ---
+    // --- 描画ロジック (タップ対応の最終版) ---
     function startDrawing(e) {
         if(isLocked) return;
         const pos = getMousePos(e);
@@ -246,28 +246,31 @@
             return;
         }
         
-        // 【修正点】指が触れた瞬間、その場所に点を描画
         isDrawing = true;
+        const color = isRainbow ? `hsl(${hue}, 100%, 50%)` : currentColor;
+
+        // 【v5修正】触れた瞬間に強制的に円を描く（タップ描画）
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(pos.x, pos.y, currentSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        if (isRainbow) hue = (hue + 5) % 360;
+
+        // 続けて線を描くためのパスを開始
+        ctx.beginPath();
+        ctx.strokeStyle = color;
         ctx.lineWidth = currentSize;
-        ctx.strokeStyle = isRainbow ? `hsl(${hue}, 100%, 50%)` : currentColor;
-        if (isRainbow) hue = (hue + 5) % 360; // にじいろを進める
-
-        // lineCap='round'なので、moveTo->lineTo(同じ座標)で円板になる
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
-
-        // 続けて線を描くための準備
-        ctx.beginPath();
         ctx.moveTo(pos.x, pos.y);
     }
 
     function draw(e) {
         if (!isDrawing || isLocked) return;
         const pos = getMousePos(e);
+        const color = isRainbow ? `hsl(${hue}, 100%, 50%)` : currentColor;
+        
+        ctx.strokeStyle = color;
         ctx.lineWidth = currentSize;
-        ctx.strokeStyle = isRainbow ? `hsl(${hue}, 100%, 50%)` : currentColor;
         if (isRainbow) hue = (hue + 5) % 360;
         
         ctx.lineTo(pos.x, pos.y);
