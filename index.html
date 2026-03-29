@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>ぴかぴか☆おえかき DX v3</title>
+    <title>ぴかぴか☆おえかき DX v4</title>
     <style>
         :root {
             --bg-color: #fff0f6;
@@ -62,7 +62,6 @@
         .btn:active { transform: translateY(2px); box-shadow: none; }
         .btn.active { background: var(--accent-color); color: white; border-color: white; }
 
-        /* ペンの太さアイコン用調整 */
         .btn-thin { font-size: 12px; }
         .btn-thick { font-size: 26px; }
 
@@ -152,20 +151,15 @@
         { name: 'はいいろ', code: '#adb5bd' }, { name: 'にじいろ', code: 'rainbow' }
     ];
 
-    // iPad用に速度を少し落とした（1.1）おしゃべり設定
     function speak(text) {
         const uttr = new SpeechSynthesisUtterance(text);
-        uttr.lang = 'ja-JP';
-        uttr.pitch = 2.0;
-        uttr.rate = 1.1; // iPadで早すぎない速度に調整
-        speechSynthesis.cancel();
-        speechSynthesis.speak(uttr);
+        uttr.lang = 'ja-JP'; uttr.pitch = 2.0; uttr.rate = 1.1;
+        speechSynthesis.cancel(); speechSynthesis.speak(uttr);
     }
 
     function showMsg(text) {
         const overlay = document.getElementById('msg-overlay');
-        overlay.innerText = text;
-        overlay.style.display = 'block';
+        overlay.innerText = text; overlay.style.display = 'block';
         setTimeout(() => { overlay.style.display = 'none'; }, 1000);
     }
 
@@ -192,10 +186,8 @@
     function resizeCanvas() {
         const container = document.getElementById('canvas-container');
         const rect = container.getBoundingClientRect();
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        ctx.scale(dpr, dpr);
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         clearCanvas(false);
     }
 
@@ -224,23 +216,14 @@
 
     function saveImage() {
         const currentData = canvas.toDataURL();
-        if (currentData === lastSavedData) {
-            speak("さっきと同じ絵だよ");
-            showMsg("おなじ絵だよ");
-            return;
-        }
+        if (currentData === lastSavedData) { speak("さっきと同じ絵だよ"); showMsg("おなじ絵だよ"); return; }
         const link = document.createElement('a');
-        link.download = `おえかき_${Date.now()}.png`;
-        link.href = currentData;
-        link.click();
-        lastSavedData = currentData;
-        speak("保存したよ！");
-        showMsg("📸 ほぞんしたよ！");
+        link.download = `おえかき_${Date.now()}.png`; link.href = currentData; link.click();
+        lastSavedData = currentData; speak("保存したよ！"); showMsg("📸 ほぞんしたよ！");
     }
 
     function setTool(tool, size = currentSize) {
-        currentTool = tool;
-        currentSize = size;
+        currentTool = tool; currentSize = size;
         document.getElementById('tool-thin').classList.toggle('active', tool === 'draw' && size < 10);
         document.getElementById('tool-thick').classList.toggle('active', tool === 'draw' && size >= 10);
         document.getElementById('tool-fill').classList.toggle('active', tool === 'fill');
@@ -248,32 +231,49 @@
     }
 
     function clearCanvas(withHistory = true) {
-        ctx.fillStyle = "white";
-        ctx.fillRect(0, 0, canvas.width/dpr, canvas.height/dpr);
+        ctx.fillStyle = "white"; ctx.fillRect(0, 0, canvas.width/dpr, canvas.height/dpr);
         if(withHistory) { saveHistory(); speak("ぴかぴかにしたよ"); }
     }
 
+    // --- 描画ロジックの修正 ---
     function startDrawing(e) {
         if(isLocked) return;
         const pos = getMousePos(e);
+        
         if (currentTool === 'fill') {
             floodFillRetina(pos.x, pos.y, isRainbow ? `hsl(${hue}, 100%, 50%)` : currentColor);
             saveHistory();
             return;
         }
+        
+        // 【修正点】指が触れた瞬間、その場所に点を描画
         isDrawing = true;
-        draw(e);
+        ctx.lineWidth = currentSize;
+        ctx.strokeStyle = isRainbow ? `hsl(${hue}, 100%, 50%)` : currentColor;
+        if (isRainbow) hue = (hue + 5) % 360; // にじいろを進める
+
+        // lineCap='round'なので、moveTo->lineTo(同じ座標)で円板になる
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+
+        // 続けて線を描くための準備
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
     }
 
     function draw(e) {
         if (!isDrawing || isLocked) return;
         const pos = getMousePos(e);
+        ctx.lineWidth = currentSize;
         ctx.strokeStyle = isRainbow ? `hsl(${hue}, 100%, 50%)` : currentColor;
         if (isRainbow) hue = (hue + 5) % 360;
-        ctx.lineWidth = currentSize;
+        
         ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(pos.x, pos.y);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
     }
 
     function stopDrawing() {
@@ -287,35 +287,19 @@
         return { x: clientX - rect.left, y: clientY - rect.top };
     }
 
-    // 塗りつぶしの色の判定基準を広げ、縁の白残りを軽減
     function floodFillRetina(startXCss, startYCss, fillColor) {
-        const startX = Math.floor(startXCss * dpr);
-        const startY = Math.floor(startYCss * dpr);
+        const startX = Math.floor(startXCss * dpr); const startY = Math.floor(startYCss * dpr);
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imgData.data;
         const fillRGB = isRainbow ? hslToRgb(hue/360, 1, 0.5) : hexToRgb(fillColor);
         const startOffset = (startY * canvas.width + startX) * 4;
         const targetColor = { r: data[startOffset], g: data[startOffset+1], b: data[startOffset+2] };
-        
-        // ターゲット色が塗りつぶし色とほぼ同じなら終了
         if (Math.abs(targetColor.r - fillRGB.r) < 5 && Math.abs(targetColor.g - fillRGB.g) < 5 && Math.abs(targetColor.b - fillRGB.b) < 5) return;
-        
-        const stack = [[startX, startY]];
-        const tolerance = 60; // 白残りを防ぐために許容範囲を広く（20→60）
-
+        const stack = [[startX, startY]]; const tolerance = 60;
         while (stack.length) {
-            const [x, y] = stack.pop();
-            const offset = (y * canvas.width + x) * 4;
+            const [x, y] = stack.pop(); const offset = (y * canvas.width + x) * 4;
             if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) continue;
-            
-            // 色の差を判定
-            const rDiff = Math.abs(data[offset] - targetColor.r);
-            const gDiff = Math.abs(data[offset+1] - targetColor.g);
-            const bDiff = Math.abs(data[offset+2] - targetColor.b);
-            
-            if (rDiff > tolerance || gDiff > tolerance || bDiff > tolerance) continue;
-
-            // 塗りつぶし実行（不透明度255）
+            if (Math.abs(data[offset]-targetColor.r)>tolerance || Math.abs(data[offset+1]-targetColor.g)>tolerance || Math.abs(data[offset+2]-targetColor.b)>tolerance) continue;
             data[offset] = fillRGB.r; data[offset+1] = fillRGB.g; data[offset+2] = fillRGB.b; data[offset+3] = 255;
             stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
         }
@@ -327,8 +311,7 @@
         return r ? { r: parseInt(r[1], 16), g: parseInt(r[2], 16), b: parseInt(r[3], 16) } : {r:0,g:0,b:0};
     }
     function hslToRgb(h, s, l) {
-        let r, g, b;
-        const hue2rgb = (p, q, t) => { if(t<0) t+=1; if(t>1) t-=1; if(t<1/6) return p+(q-p)*6*t; if(t<1/2) return q; if(t<2/3) return p+(q-p)*(2/3-t)*6; return p; };
+        let r, g, b; const hue2rgb = (p, q, t) => { if(t<0) t+=1; if(t>1) t-=1; if(t<1/6) return p+(q-p)*6*t; if(t<1/2) return q; if(t<2/3) return p+(q-p)*(2/3-t)*6; return p; };
         const q = l < 0.5 ? l * (1 + s) : l + s - l * s; const p = 2 * l - q;
         r = hue2rgb(p, q, h + 1/3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1/3);
         return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
@@ -339,8 +322,7 @@
         longPressTimer = setTimeout(() => {
             isLocked = !isLocked;
             const btn = document.getElementById('lock-btn');
-            btn.innerText = isLocked ? '🔒' : '🔓';
-            btn.classList.toggle('active', isLocked);
+            btn.innerText = isLocked ? '🔒' : '🔓'; btn.classList.toggle('active', isLocked);
             document.getElementById('lock-label').style.display = isLocked ? 'block' : 'none';
             speak(isLocked ? "ロックしたよ" : "ロック解除したよ");
         }, 3000);
