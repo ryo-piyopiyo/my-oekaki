@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>ぴかぴか☆おえかき DX v2</title>
+    <title>ぴかぴか☆おえかき DX v3</title>
     <style>
         :root {
             --bg-color: #fff0f6;
@@ -54,7 +54,7 @@
         .btn {
             background: white; border: 2px solid var(--accent-color);
             border-radius: 15px; width: 50px; height: 50px;
-            font-size: 24px; display: flex; align-items: center; justify-content: center;
+            font-size: 26px; display: flex; align-items: center; justify-content: center;
             cursor: pointer; transition: all 0.2s;
             box-shadow: 0 3px 0 var(--accent-color);
             -webkit-tap-highlight-color: transparent;
@@ -62,10 +62,13 @@
         .btn:active { transform: translateY(2px); box-shadow: none; }
         .btn.active { background: var(--accent-color); color: white; border-color: white; }
 
-        /* 特殊ボタン色 */
+        /* ペンの太さアイコン用調整 */
+        .btn-thin { font-size: 12px; }
+        .btn-thick { font-size: 26px; }
+
         .undo-btn { border-color: #a29bfe; color: #6c5ce7; box-shadow: 0 3px 0 #a29bfe; }
         .save-btn { border-color: #55efc4; color: #00b894; box-shadow: 0 3px 0 #55efc4; width: 60px; }
-        .lock-btn { border-color: var(--lock-color); color: #00838f; box-shadow: 0 3px 0 var(--lock-color); font-size: 20px; }
+        .lock-btn { border-color: var(--lock-color); color: #00838f; box-shadow: 0 3px 0 var(--lock-color); font-size: 22px; }
         .lock-btn.active { background: var(--lock-color); color: white; }
 
         #canvas-container {
@@ -77,7 +80,6 @@
 
         canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 
-        /* メッセージ表示 */
         #msg-overlay {
             position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             background: rgba(0,0,0,0.7); color: white; padding: 15px 30px;
@@ -103,9 +105,9 @@
             <button class="btn undo-btn" onclick="undo()">↩️</button>
             <button class="btn undo-btn" onclick="redo()">↪️</button>
             <div style="width:2px; height:30px; background:#ddd; margin:0 5px;"></div>
-            <button id="tool-thin" class="btn" onclick="setTool('draw', 6)">●<small style="font-size:10px">小</small></button>
-            <button id="tool-thick" class="btn active" onclick="setTool('draw', 20)">●<small style="font-size:10px">大</small></button>
-            <button id="tool-fill" class="btn" onclick="setTool('fill')">■</button>
+            <button id="tool-thin" class="btn btn-thin" onclick="setTool('draw', 6)">●</button>
+            <button id="tool-thick" class="btn btn-thick active" onclick="setTool('draw', 20)">●</button>
+            <button id="tool-fill" class="btn" onclick="setTool('fill')">🪣</button>
             <div style="width:2px; height:30px; background:#ddd; margin:0 5px;"></div>
             <button class="btn save-btn" onclick="saveImage()">📸</button>
             <button class="btn" onclick="clearCanvas()">🗑️</button>
@@ -133,7 +135,7 @@
     let currentSize = 20;
     let isLocked = false;
     let longPressTimer;
-    let lastSavedData = ""; // 保存時のデータを記録
+    let lastSavedData = "";
 
     let historyStack = [];
     let redoStack = [];
@@ -150,10 +152,14 @@
         { name: 'はいいろ', code: '#adb5bd' }, { name: 'にじいろ', code: 'rainbow' }
     ];
 
+    // iPad用に速度を少し落とした（1.1）おしゃべり設定
     function speak(text) {
         const uttr = new SpeechSynthesisUtterance(text);
-        uttr.lang = 'ja-JP'; uttr.pitch = 2.0; uttr.rate = 1.4;
-        speechSynthesis.cancel(); speechSynthesis.speak(uttr);
+        uttr.lang = 'ja-JP';
+        uttr.pitch = 2.0;
+        uttr.rate = 1.1; // iPadで早すぎない速度に調整
+        speechSynthesis.cancel();
+        speechSynthesis.speak(uttr);
     }
 
     function showMsg(text) {
@@ -223,12 +229,10 @@
             showMsg("おなじ絵だよ");
             return;
         }
-        
         const link = document.createElement('a');
         link.download = `おえかき_${Date.now()}.png`;
         link.href = currentData;
         link.click();
-        
         lastSavedData = currentData;
         speak("保存したよ！");
         showMsg("📸 ほぞんしたよ！");
@@ -283,6 +287,7 @@
         return { x: clientX - rect.left, y: clientY - rect.top };
     }
 
+    // 塗りつぶしの色の判定基準を広げ、縁の白残りを軽減
     function floodFillRetina(startXCss, startYCss, fillColor) {
         const startX = Math.floor(startXCss * dpr);
         const startY = Math.floor(startYCss * dpr);
@@ -291,13 +296,26 @@
         const fillRGB = isRainbow ? hslToRgb(hue/360, 1, 0.5) : hexToRgb(fillColor);
         const startOffset = (startY * canvas.width + startX) * 4;
         const targetColor = { r: data[startOffset], g: data[startOffset+1], b: data[startOffset+2] };
+        
+        // ターゲット色が塗りつぶし色とほぼ同じなら終了
         if (Math.abs(targetColor.r - fillRGB.r) < 5 && Math.abs(targetColor.g - fillRGB.g) < 5 && Math.abs(targetColor.b - fillRGB.b) < 5) return;
+        
         const stack = [[startX, startY]];
+        const tolerance = 60; // 白残りを防ぐために許容範囲を広く（20→60）
+
         while (stack.length) {
             const [x, y] = stack.pop();
             const offset = (y * canvas.width + x) * 4;
             if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) continue;
-            if (Math.abs(data[offset]-targetColor.r)>20 || Math.abs(data[offset+1]-targetColor.g)>20 || Math.abs(data[offset+2]-targetColor.b)>20) continue;
+            
+            // 色の差を判定
+            const rDiff = Math.abs(data[offset] - targetColor.r);
+            const gDiff = Math.abs(data[offset+1] - targetColor.g);
+            const bDiff = Math.abs(data[offset+2] - targetColor.b);
+            
+            if (rDiff > tolerance || gDiff > tolerance || bDiff > tolerance) continue;
+
+            // 塗りつぶし実行（不透明度255）
             data[offset] = fillRGB.r; data[offset+1] = fillRGB.g; data[offset+2] = fillRGB.b; data[offset+3] = 255;
             stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
         }
