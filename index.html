@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>ぴかぴか☆おえかき DX v9</title>
+    <title>ぴかぴか☆おえかき DX v10</title>
     <style>
         :root { --bg-color: #fff0f6; --panel-color: #ffffff; --accent-color: #ff85a1; --lock-color: #4dd0e1; }
         body { margin: 0; padding: 0; background-color: var(--bg-color); font-family: sans-serif; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; padding-top: env(safe-area-inset-top); }
@@ -15,13 +15,22 @@
         .color-btn { width: 36px; height: 36px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer; transition: transform 0.2s; -webkit-tap-highlight-color: transparent; }
         .color-btn.active { transform: scale(1.2); border-color: var(--accent-color); }
         .rainbow-btn { background: linear-gradient(45deg, red, orange, yellow, green, blue, purple); }
-        .controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center; }
-        .btn { background: white; border: 2px solid var(--accent-color); border-radius: 15px; width: 50px; height: 50px; font-size: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; box-shadow: 0 3px 0 var(--accent-color); -webkit-tap-highlight-color: transparent; }
+        
+        /* ツールバーの配置調整 */
+        .controls { display: flex; width: 95%; justify-content: space-between; align-items: center; }
+        .left-controls, .right-controls { display: flex; gap: 6px; align-items: center; }
+        
+        .btn { background: white; border: 2px solid var(--accent-color); border-radius: 15px; width: 48px; height: 48px; font-size: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; box-shadow: 0 3px 0 var(--accent-color); -webkit-tap-highlight-color: transparent; }
         .btn:active { transform: translateY(2px); box-shadow: none; }
         .btn.active { background: var(--accent-color); color: white; border-color: white; }
         .btn-thin { font-size: 10px; } .btn-thick { font-size: 24px; }
         .undo-btn { border-color: #a29bfe; color: #6c5ce7; box-shadow: 0 3px 0 #a29bfe; }
-        .save-btn { border-color: #55efc4; color: #00b894; box-shadow: 0 3px 0 #55efc4; width: 60px; }
+        .save-btn { border-color: #55efc4; color: #00b894; box-shadow: 0 3px 0 #55efc4; width: 55px; }
+        
+        /* ロックボタン */
+        .lock-btn { border-color: var(--lock-color); color: #00838f; box-shadow: 0 3px 0 var(--lock-color); }
+        .lock-btn.locked { background: var(--lock-color); color: white; }
+
         #canvas-container { flex-grow: 1; width: 96%; margin: 10px; background: white; border-radius: 25px; box-shadow: 0 10px 20px rgba(0,0,0,0.05); position: relative; border: 6px solid #fff; overflow: hidden; }
         canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         #msg-overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.7); color: white; padding: 15px 30px; border-radius: 30px; font-weight: bold; font-size: 20px; display: none; z-index: 1000; pointer-events: none; }
@@ -32,26 +41,33 @@
     <div id="toolbar">
         <div class="palette" id="palette"></div>
         <div class="controls">
-            <button class="btn undo-btn" onclick="undo()">↩️</button>
-            <button class="btn undo-btn" onclick="redo()">↪️</button>
-            <div style="width:2px; height:30px; background:#ddd; margin:0 5px;"></div>
-            <button id="tool-thin" class="btn btn-thin" onclick="setTool('draw', 6)">●</button>
-            <button id="tool-thick" class="btn btn-thick active" onclick="setTool('draw', 20)">●</button>
-            <button id="tool-fill" class="btn" onclick="setTool('fill')">🪣</button>
-            <div style="width:2px; height:30px; background:#ddd; margin:0 5px;"></div>
-            <button class="btn save-btn" onclick="saveImage()">📸</button>
-            <button class="btn" onclick="clearCanvas()">🗑️</button>
+            <div class="left-controls">
+                <button class="btn undo-btn" onclick="undo()">↩️</button>
+                <button class="btn undo-btn" onclick="redo()">↪️</button>
+                <div style="width:1px; height:25px; background:#ddd; margin:0 2px;"></div>
+                <button id="tool-thin" class="btn btn-thin" onclick="setTool('draw', 6)">●</button>
+                <button id="tool-thick" class="btn btn-thick active" onclick="setTool('draw', 20)">●</button>
+                <button id="tool-fill" class="btn" onclick="setTool('fill')">🪣</button>
+                <button class="btn" onclick="clearCanvas()">🗑️</button>
+            </div>
+            <div class="right-controls">
+                <button class="btn" onclick="triggerLoadImage()">📁</button>
+                <button class="btn save-btn" onclick="saveImage()">📸</button>
+                <button id="lock-btn" class="btn lock-btn" onmousedown="startLongPress()" ontouchstart="startLongPress(event)" onmouseup="cancelLongPress()" ontouchend="cancelLongPress()">🔓</button>
+            </div>
         </div>
     </div>
     <div id="canvas-container"><canvas id="canvas"></canvas></div>
     <div id="msg-overlay"></div>
+    <input type="file" id="file-input" accept="image/*" style="display:none;" onchange="loadImage(this)">
 </div>
 <script>
     const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true }), dpr = window.devicePixelRatio || 1;
-    let isDrawing = false, currentTool = 'draw', currentColor = '#ff4d4d', isRainbow = false, hue = 0, currentSize = 20, lastSavedData = "";
+    let isDrawing = false, currentTool = 'draw', currentColor = '#ff4d4d', isRainbow = false, hue = 0, currentSize = 20, isLocked = false, longPressTimer, lastSavedData = "";
     let historyStack = [], redoStack = [], voices = [];
     const MAX_HISTORY = 20;
 
+    // --- 音声設定 (Siriナチュラルモード) ---
     function loadVoices() { voices = speechSynthesis.getVoices(); }
     window.speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
@@ -84,37 +100,110 @@
     function undo() { if (historyStack.length > 1) { redoStack.push(historyStack.pop()); ctx.putImageData(historyStack[historyStack.length - 1], 0, 0); speak("もどしたよ"); } }
     function redo() { if (redoStack.length > 0) { const d = redoStack.pop(); historyStack.push(d); ctx.putImageData(d, 0, 0); speak("すすんだよ"); } }
 
-    // --- 【修正】保存機能をシステム共有に変更 ---
+    // --- ロック機能 ---
+    function startLongPress(e) {
+        if(e) e.preventDefault();
+        document.getElementById('lock-btn').style.transform = "scale(0.9)";
+        longPressTimer = setTimeout(() => {
+            isLocked = !isLocked;
+            const btn = document.getElementById('lock-btn');
+            btn.innerText = isLocked ? '🔒' : '🔓';
+            btn.classList.toggle('locked', isLocked);
+            btn.style.transform = "scale(1)";
+            speak(isLocked ? "ロックしたよ" : "ロック解除したよ");
+            showMsg(isLocked ? "🔒 ロックしたよ" : "🔓 ロック解除");
+        }, 3000);
+    }
+    function cancelLongPress() { clearTimeout(longPressTimer); document.getElementById('lock-btn').style.transform = "scale(1)"; }
+
+    // --- 保存機能 (ロック制限) ---
     async function saveImage() {
+        if (isLocked) { speak("先に鍵を開けてね"); showMsg("🔒 鍵がかかってるよ"); return; }
         const dataUrl = canvas.toDataURL("image/png");
         if (dataUrl === lastSavedData) { speak("さっきと同じ絵だよ"); showMsg("おなじ絵だよ"); return; }
-        
         try {
             const blob = await (await fetch(dataUrl)).blob();
             const file = new File([blob], "oekaki.png", { type: "image/png" });
-            
-            // iPadの共有メニューを呼び出し（ブラウザを離れない）
             if (navigator.share) {
-                await navigator.share({
-                    files: [file],
-                    title: 'おえかき',
-                });
+                await navigator.share({ files: [file], title: 'おえかき' });
                 lastSavedData = dataUrl;
-                speak("保存したよ！");
-                showMsg("📸 ほぞんしたよ！");
+                speak("保存したよ！"); showMsg("📸 ほぞんしたよ！");
             } else {
-                // PC用フォールバック
-                const l = document.createElement('a'); l.download = `おえかき.png`; l.href = dataUrl; l.click();
+                const l = document.createElement('a'); l.download = `oekaki.png`; l.href = dataUrl; l.click();
             }
-        } catch (e) {
-            console.log("Save cancelled");
-        }
+        } catch (e) {}
     }
 
+    // --- 【新機能】画像読み込み＆線画変換 ---
+    function triggerLoadImage() {
+        if (isLocked) { speak("先に鍵を開けてね"); showMsg("🔒 鍵がかかってるよ"); return; }
+        document.getElementById('file-input').click();
+    }
+
+    function loadImage(input) {
+        const file = input.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                processImageToOutline(img);
+                input.value = ""; // インプットをリセット
+            }
+            img.src = e.target.result;
+        }
+        reader.readAsDataURL(file);
+    }
+
+    // 画像を線画に変換してキャンバスに描画
+    function processImageToOutline(img) {
+        // キャンバスを一旦クリア
+        ctx.fillStyle = "white";
+        ctx.fillRect(0, 0, canvas.width/dpr, canvas.height/dpr);
+
+        // アスペクト比を維持してフィットさせる計算
+        const cw = canvas.width / dpr;
+        const ch = canvas.height / dpr;
+        const iw = img.width;
+        const ih = img.height;
+        const ratio = Math.min(cw / iw, ch / ih);
+        const nw = iw * ratio;
+        const nh = ih * ratio;
+        const nx = (cw - nw) / 2;
+        const ny = (ch - nh) / 2;
+
+        // 画像を描画
+        ctx.drawImage(img, nx, ny, nw, nh);
+
+        // 物理ピクセルデータを取得
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+        const threshold = 140; // 白黒判定の閾値 (0-255)。適宜調整。
+
+        // ピクセルごとに白黒判定（二値化）
+        for (let i = 0; i < data.length; i += 4) {
+            // 輝度を計算（簡易版）
+            const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+            // 閾値より暗ければ黒、明るければ白にする
+            const value = avg < threshold ? 0 : 255;
+            data[i]     = value; // R
+            data[i + 1] = value; // G
+            data[i + 2] = value; // B
+            data[i + 3] = 255;   // Alpha (不透明)
+        }
+        // 変換したデータをキャンバスに戻す
+        ctx.putImageData(imgData, 0, 0);
+        saveHistory(); // 履歴に保存
+        speak("絵を読み込んだよ。色を塗ってね！");
+        showMsg("📁 読み込んだよ");
+    }
+
+    // --- お絵描きロジック ---
     function setTool(t, s = currentSize) { currentTool = t; currentSize = s; document.getElementById('tool-thin').classList.toggle('active', t === 'draw' && s < 10); document.getElementById('tool-thick').classList.toggle('active', t === 'draw' && s >= 10); document.getElementById('tool-fill').classList.toggle('active', t === 'fill'); speak(t === 'fill' ? "ぬりつぶし" : "ペン"); }
     function clearCanvas(h = true) { ctx.fillStyle = "white"; ctx.fillRect(0, 0, canvas.width/dpr, canvas.height/dpr); if(h) { saveHistory(); speak("ぴかぴかにしたよ"); } }
 
     function startDrawing(e) {
+        // お絵描きはロック中も許可
         const p = getMousePos(e), color = isRainbow ? `hsl(${hue}, 100%, 50%)` : currentColor;
         if (currentTool === 'fill') { floodFillRetina(p.x, p.y, color); saveHistory(); return; }
         isDrawing = true; ctx.beginPath(); ctx.fillStyle = color; ctx.arc(p.x, p.y, currentSize / 2, 0, Math.PI * 2); ctx.fill();
