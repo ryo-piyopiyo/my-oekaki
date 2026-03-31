@@ -37,6 +37,7 @@
         .outline-controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.96); border: 2px solid var(--accent-color); border-radius: 16px; padding: 10px 14px; box-shadow: 0 8px 20px rgba(0,0,0,0.12); z-index: 20; display: none; flex-direction: column; gap: 8px; min-width: 260px; }
         .outline-controls.show { display: flex; }
         .outline-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .outline-row.compact { font-size: 12px; }
         .outline-row label { min-width: 70px; font-weight: bold; color: #555; }
         .outline-row input[type="range"] { flex: 1; }
         .outline-row .value { width: 32px; text-align: right; font-weight: bold; color: #444; }
@@ -78,6 +79,26 @@
             <label for="line-slider">せんのふとさ</label>
             <input id="line-slider" type="range" min="1" max="4" value="1" oninput="onOutlineSliderChange()">
             <span id="line-value" class="value">1</span>
+        </div>
+        <div class="outline-row compact">
+            <label for="crop-left-slider">ひだり</label>
+            <input id="crop-left-slider" type="range" min="0" max="40" value="0" oninput="onOutlineSliderChange()">
+            <span id="crop-left-value" class="value">0%</span>
+        </div>
+        <div class="outline-row compact">
+            <label for="crop-top-slider">うえ</label>
+            <input id="crop-top-slider" type="range" min="0" max="40" value="0" oninput="onOutlineSliderChange()">
+            <span id="crop-top-value" class="value">0%</span>
+        </div>
+        <div class="outline-row compact">
+            <label for="crop-right-slider">みぎ</label>
+            <input id="crop-right-slider" type="range" min="0" max="40" value="0" oninput="onOutlineSliderChange()">
+            <span id="crop-right-value" class="value">0%</span>
+        </div>
+        <div class="outline-row compact">
+            <label for="crop-bottom-slider">した</label>
+            <input id="crop-bottom-slider" type="range" min="0" max="40" value="0" oninput="onOutlineSliderChange()">
+            <span id="crop-bottom-value" class="value">0%</span>
         </div>
         <div class="outline-actions">
             <button class="outline-close" onclick="closeOutlineControls()">OK</button>
@@ -169,7 +190,7 @@
         }
     }
 
-    // --- 【新機能】画像読み込み＆線画変換 ---
+    // --- 画像読み込み＆線画変換 ---
     function triggerLoadImage() {
         if (isLocked) { speak("先に鍵を開けてね"); showMsg("🔒 鍵がかかってるよ"); return; }
         document.getElementById('file-input').click();
@@ -196,24 +217,34 @@
     function processImageToOutline(img, shouldAnnounce = true) {
         const threshold = Number(document.getElementById('threshold-slider')?.value || 140);
         const lineWidth = Number(document.getElementById('line-slider')?.value || 1);
+        const cropLeft = Number(document.getElementById('crop-left-slider')?.value || 0) / 100;
+        const cropTop = Number(document.getElementById('crop-top-slider')?.value || 0) / 100;
+        const cropRight = Number(document.getElementById('crop-right-slider')?.value || 0) / 100;
+        const cropBottom = Number(document.getElementById('crop-bottom-slider')?.value || 0) / 100;
 
         // キャンバスを一旦クリア
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, canvas.width/dpr, canvas.height/dpr);
 
-        // アスペクト比を維持してフィットさせる計算
-        const cw = canvas.width / dpr;
-        const ch = canvas.height / dpr;
+        // トリミング範囲を計算
         const iw = img.width;
         const ih = img.height;
-        const ratio = Math.min(cw / iw, ch / ih);
-        const nw = iw * ratio;
-        const nh = ih * ratio;
+        const sx = Math.floor(iw * cropLeft);
+        const sy = Math.floor(ih * cropTop);
+        const sw = Math.max(1, Math.floor(iw * (1 - cropLeft - cropRight)));
+        const sh = Math.max(1, Math.floor(ih * (1 - cropTop - cropBottom)));
+
+        // トリミング後の画像をキャンバスに"cover"配置（縦か横のどちらかを一致させる）
+        const cw = canvas.width / dpr;
+        const ch = canvas.height / dpr;
+        const ratio = Math.max(cw / sw, ch / sh);
+        const nw = sw * ratio;
+        const nh = sh * ratio;
         const nx = (cw - nw) / 2;
         const ny = (ch - nh) / 2;
 
         // 画像を描画
-        ctx.drawImage(img, nx, ny, nw, nh);
+        ctx.drawImage(img, sx, sy, sw, sh, nx, ny, nw, nh);
 
         // 物理ピクセルデータを取得
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -264,8 +295,25 @@
     function onOutlineSliderChange() {
         const threshold = document.getElementById('threshold-slider');
         const line = document.getElementById('line-slider');
+        const cropLeft = document.getElementById('crop-left-slider');
+        const cropTop = document.getElementById('crop-top-slider');
+        const cropRight = document.getElementById('crop-right-slider');
+        const cropBottom = document.getElementById('crop-bottom-slider');
+
+        // 左右・上下の合計が100%を超えないように制限
+        if (Number(cropLeft.value) + Number(cropRight.value) > 90) {
+            cropRight.value = String(90 - Number(cropLeft.value));
+        }
+        if (Number(cropTop.value) + Number(cropBottom.value) > 90) {
+            cropBottom.value = String(90 - Number(cropTop.value));
+        }
+
         document.getElementById('threshold-value').innerText = threshold.value;
         document.getElementById('line-value').innerText = line.value;
+        document.getElementById('crop-left-value').innerText = `${cropLeft.value}%`;
+        document.getElementById('crop-top-value').innerText = `${cropTop.value}%`;
+        document.getElementById('crop-right-value').innerText = `${cropRight.value}%`;
+        document.getElementById('crop-bottom-value').innerText = `${cropBottom.value}%`;
         if (!originalLoadedImage) return;
         clearTimeout(outlinePreviewTimer);
         outlinePreviewTimer = setTimeout(() => processImageToOutline(originalLoadedImage, false), 120);
@@ -273,6 +321,10 @@
 
     function openOutlineControls() {
         document.getElementById('outline-controls').classList.add('show');
+        document.getElementById('crop-left-slider').value = 0;
+        document.getElementById('crop-top-slider').value = 0;
+        document.getElementById('crop-right-slider').value = 0;
+        document.getElementById('crop-bottom-slider').value = 0;
         onOutlineSliderChange();
     }
 
