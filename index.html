@@ -34,6 +34,14 @@
         #canvas-container { flex-grow: 1; width: 96%; margin: 10px; background: white; border-radius: 25px; box-shadow: 0 10px 20px rgba(0,0,0,0.05); position: relative; border: 6px solid #fff; overflow: hidden; }
         canvas { display: block; width: 100%; height: 100%; touch-action: none; }
         #msg-overlay { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.7); color: white; padding: 15px 30px; border-radius: 30px; font-weight: bold; font-size: 20px; display: none; z-index: 1000; pointer-events: none; }
+        .outline-controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(255,255,255,0.96); border: 2px solid var(--accent-color); border-radius: 16px; padding: 10px 14px; box-shadow: 0 8px 20px rgba(0,0,0,0.12); z-index: 20; display: none; flex-direction: column; gap: 8px; min-width: 260px; }
+        .outline-controls.show { display: flex; }
+        .outline-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .outline-row label { min-width: 70px; font-weight: bold; color: #555; }
+        .outline-row input[type="range"] { flex: 1; }
+        .outline-row .value { width: 32px; text-align: right; font-weight: bold; color: #444; }
+        .outline-actions { display: flex; justify-content: flex-end; }
+        .outline-close { border: 2px solid var(--accent-color); background: white; border-radius: 10px; padding: 6px 10px; font-size: 12px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -60,11 +68,27 @@
     <div id="canvas-container"><canvas id="canvas"></canvas></div>
     <div id="msg-overlay"></div>
     <input type="file" id="file-input" accept="image/*" style="display:none;" onchange="loadImage(this)">
+    <div id="outline-controls" class="outline-controls" aria-live="polite">
+        <div class="outline-row">
+            <label for="threshold-slider">しきいち</label>
+            <input id="threshold-slider" type="range" min="60" max="220" value="140" oninput="onOutlineSliderChange()">
+            <span id="threshold-value" class="value">140</span>
+        </div>
+        <div class="outline-row">
+            <label for="line-slider">せんのふとさ</label>
+            <input id="line-slider" type="range" min="1" max="4" value="1" oninput="onOutlineSliderChange()">
+            <span id="line-value" class="value">1</span>
+        </div>
+        <div class="outline-actions">
+            <button class="outline-close" onclick="closeOutlineControls()">OK</button>
+        </div>
+    </div>
 </div>
 <script>
     const canvas = document.getElementById('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true }), dpr = window.devicePixelRatio || 1;
     let isDrawing = false, currentTool = 'draw', currentColor = '#ff4d4d', isRainbow = false, hue = 0, currentSize = 20, isLocked = false, longPressTimer, lastSavedData = "";
     let historyStack = [], redoStack = [], voices = [];
+    let originalLoadedImage = null, outlinePreviewTimer = null;
     const MAX_HISTORY = 20;
 
     // --- 音声設定 (Siriナチュラルモード) ---
@@ -93,6 +117,13 @@
             p.appendChild(b);
         });
         resizeCanvas(); saveHistory();
+        try {
+            const lockHintShown = localStorage.getItem('lockHintShownV1');
+            if (!lockHintShown) {
+                setTimeout(() => showMsg("🔓を3びょうおすと ロック/かいじょ"), 900);
+                localStorage.setItem('lockHintShownV1', '1');
+            }
+        } catch (e) {}
     });
 
     function resizeCanvas() { const c = document.getElementById('canvas-container'), r = c.getBoundingClientRect(); canvas.width = r.width * dpr; canvas.height = r.height * dpr; ctx.scale(dpr, dpr); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; clearCanvas(false); }
@@ -131,7 +162,11 @@
             } else {
                 const l = document.createElement('a'); l.download = `oekaki.png`; l.href = dataUrl; l.click();
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error(e);
+            speak("保存できなかったよ");
+            showMsg("ほぞんできなかったよ");
+        }
     }
 
     // --- 【新機能】画像読み込み＆線画変換 ---
@@ -147,6 +182,8 @@
         reader.onload = function(e) {
             const img = new Image();
             img.onload = function() {
+                originalLoadedImage = img;
+                openOutlineControls();
                 processImageToOutline(img);
                 input.value = ""; // インプットをリセット
             }
@@ -156,7 +193,10 @@
     }
 
     // 画像を線画に変換してキャンバスに描画
-    function processImageToOutline(img) {
+    function processImageToOutline(img, shouldAnnounce = true) {
+        const threshold = Number(document.getElementById('threshold-slider')?.value || 140);
+        const lineWidth = Number(document.getElementById('line-slider')?.value || 1);
+
         // キャンバスを一旦クリア
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, canvas.width/dpr, canvas.height/dpr);
@@ -178,24 +218,67 @@
         // 物理ピクセルデータを取得
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imgData.data;
-        const threshold = 140; // 白黒判定の閾値 (0-255)。適宜調整。
 
         // ピクセルごとに白黒判定（二値化）
         for (let i = 0; i < data.length; i += 4) {
-            // 輝度を計算（簡易版）
             const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-            // 閾値より暗ければ黒、明るければ白にする
             const value = avg < threshold ? 0 : 255;
-            data[i]     = value; // R
-            data[i + 1] = value; // G
-            data[i + 2] = value; // B
-            data[i + 3] = 255;   // Alpha (不透明)
+            data[i]     = value;
+            data[i + 1] = value;
+            data[i + 2] = value;
+            data[i + 3] = 255;
         }
+
+        if (lineWidth > 1) thickenBlackLines(data, canvas.width, canvas.height, lineWidth - 1);
+
         // 変換したデータをキャンバスに戻す
         ctx.putImageData(imgData, 0, 0);
-        saveHistory(); // 履歴に保存
-        speak("絵を読み込んだよ。色を塗ってね！");
-        showMsg("📁 読み込んだよ");
+        saveHistory();
+        if (shouldAnnounce) {
+            speak("絵を読み込んだよ。色を塗ってね！");
+            showMsg("📁 読み込んだよ");
+        }
+    }
+
+    function thickenBlackLines(data, width, height, iterations) {
+        for (let step = 0; step < iterations; step++) {
+            const src = new Uint8ClampedArray(data);
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const idx = (y * width + x) * 4;
+                    if (src[idx] !== 0) continue;
+                    for (let ny = -1; ny <= 1; ny++) {
+                        for (let nx = -1; nx <= 1; nx++) {
+                            const nIdx = ((y + ny) * width + (x + nx)) * 4;
+                            data[nIdx] = 0;
+                            data[nIdx + 1] = 0;
+                            data[nIdx + 2] = 0;
+                            data[nIdx + 3] = 255;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    function onOutlineSliderChange() {
+        const threshold = document.getElementById('threshold-slider');
+        const line = document.getElementById('line-slider');
+        document.getElementById('threshold-value').innerText = threshold.value;
+        document.getElementById('line-value').innerText = line.value;
+        if (!originalLoadedImage) return;
+        clearTimeout(outlinePreviewTimer);
+        outlinePreviewTimer = setTimeout(() => processImageToOutline(originalLoadedImage, false), 120);
+    }
+
+    function openOutlineControls() {
+        document.getElementById('outline-controls').classList.add('show');
+        onOutlineSliderChange();
+    }
+
+    function closeOutlineControls() {
+        document.getElementById('outline-controls').classList.remove('show');
+        showMsg("OK! ぬってみよう");
     }
 
     // --- お絵描きロジック ---
@@ -215,17 +298,47 @@
     function getMousePos(e) { const r = canvas.getBoundingClientRect(), x = e.touches ? e.touches[0].clientX : e.clientX, y = e.touches ? e.touches[0].clientY : e.clientY; return { x: x - r.left, y: y - r.top }; }
 
     function floodFillRetina(sx, sy, fc) {
-        const x = Math.floor(sx * dpr), y = Math.floor(sy * dpr), id = ctx.getImageData(0, 0, canvas.width, canvas.height), d = id.data, fr = isRainbow ? hslToRgb(hue/360, 1, 0.5) : hexToRgb(fc);
-        const o = (y * canvas.width + x) * 4, tc = { r: d[o], g: d[o+1], b: d[o+2] };
-        if (Math.abs(tc.r - fr.r) < 5 && Math.abs(tc.g - fr.g) < 5 && Math.abs(tc.b - fr.b) < 5) return;
+        const x = Math.floor(sx * dpr), y = Math.floor(sy * dpr);
+        const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = id.data;
+        if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) return;
+
+        const o = (y * canvas.width + x) * 4;
+        const tc = { r: d[o], g: d[o+1], b: d[o+2] };
+        const fr = isRainbow ? hslToRgb(hue/360, 1, 0.5) : hexToRgb(fc);
+        if (!isRainbow && Math.abs(tc.r - fr.r) < 5 && Math.abs(tc.g - fr.g) < 5 && Math.abs(tc.b - fr.b) < 5) return;
+
         const s = [[x, y]], tol = 60;
+        const filledPixels = [];
         while (s.length) {
-            const [cx, cy] = s.pop(), co = (cy * canvas.width + cx) * 4;
+            const [cx, cy] = s.pop();
             if (cx < 0 || cx >= canvas.width || cy < 0 || cy >= canvas.height) continue;
+            const co = (cy * canvas.width + cx) * 4;
             if (Math.abs(d[co]-tc.r)>tol || Math.abs(d[co+1]-tc.g)>tol || Math.abs(d[co+2]-tc.b)>tol) continue;
-            d[co] = fr.r; d[co+1] = fr.g; d[co+2] = fr.b; d[co+3] = 255;
+
+            // 訪問済みマーク
+            d[co] = 1; d[co+1] = 1; d[co+2] = 1; d[co+3] = 255;
+            filledPixels.push([cx, cy]);
             s.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
         }
+
+        if (isRainbow) {
+            const baseHue = hue;
+            const k = 0.45;
+            filledPixels.forEach(([px, py]) => {
+                const co = (py * canvas.width + px) * 4;
+                const h = (baseHue + (px + py) * k) % 360;
+                const rgb = hslToRgb(h / 360, 1, 0.5);
+                d[co] = rgb.r; d[co+1] = rgb.g; d[co+2] = rgb.b; d[co+3] = 255;
+            });
+            hue = (hue + 20) % 360;
+        } else {
+            filledPixels.forEach(([px, py]) => {
+                const co = (py * canvas.width + px) * 4;
+                d[co] = fr.r; d[co+1] = fr.g; d[co+2] = fr.b; d[co+3] = 255;
+            });
+        }
+
         ctx.putImageData(id, 0, 0);
     }
     function hexToRgb(h) { const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(h); return r ? { r: parseInt(r[1], 16), g: parseInt(r[2], 16), b: parseInt(r[3], 16) } : {r:0,g:0,b:0}; }
